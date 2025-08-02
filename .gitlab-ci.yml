@@ -1,0 +1,44 @@
+stages:
+  - build
+  - resolve
+  - upload
+
+variables:
+  DOCKER_DRIVER: overlay2
+  PACKAGE_DIR: build_output
+  DEP_DIR: deps
+
+default:
+  image: docker:24.0.7
+  services:
+    - docker:dind
+
+before_script:
+  - docker info
+
+build_podman:
+  stage: build
+  script:
+    - docker build -t podman-builder -f docker/podman-builder.Dockerfile .
+    - docker run --rm -v $CI_PROJECT_DIR/$PACKAGE_DIR:/build_output \
+      podman-builder bash /src/scripts/build_podman.sh
+  artifacts:
+    paths:
+      - $PACKAGE_DIR/
+
+resolve_dependencies:
+  stage: resolve
+  script:
+    - docker run --rm -v $CI_PROJECT_DIR/$DEP_DIR:/deps \
+      podman-builder bash /src/scripts/resolve_dependencies.sh
+  artifacts:
+    paths:
+      - $DEP_DIR/
+
+upload_all_to_nexus:
+  stage: upload
+  image: curlimages/curl:latest
+  script:
+    - mkdir upload && cp $PACKAGE_DIR/*.deb upload/
+    - cp $DEP_DIR/*.deb upload/ || true
+    - bash scripts/upload_to_nexus.sh "$NEXUS_URL" "$NEXUS_USER" "$NEXUS_PASS" "$NEXUS_REPO"
